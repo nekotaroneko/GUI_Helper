@@ -1,33 +1,132 @@
 #!/usr/bin/env python
 #coding: utf-8
 
-import json
-import ui
-import os
-import console,editor
-import sys
+import json, pprint, clipboard, os, console
+
+import ui, textwrap, editor, os, bz2, base64, clipboard
+
+'''
+2016.2.26 full support subview like v['subview']['subview']['subview']...
+'''
+
+def to_abs_path(*value):
+	import os
+	abs_path = os.path.join(os.path.expanduser('~'),'Documents')
+	for _value in value:
+		abs_path = os.path.join(abs_path,_value)
+	return abs_path
+
+
+
+def get_attrib(node):
+	global subclass_name_list, gui_helper
+	for attrib in node:
+		#print attrib
+		class_name = attrib['class']
+		
+		name = attrib['attributes']['name']
+		class_name = attrib['class']
+			
+		print 'name {}'.format(name)
+		print 'class name {}'.format(class_name)
+
+		if subclass_name_list:
+			print subclass_name_list
+			_subclass_name_list = map(lambda x:"['"+x+"']", subclass_name_list)
+			object_str = "{}['{}']".format(''.join(_subclass_name_list), name)
+			object_str = 'self.{title} = self.{view_title}{subclass_str}'.format(title=name, view_title=gui_helper.view_title, subclass_str=object_str)
+		else:
+			
+			object_str = "self.{title} = self.{view_title}['{title}']".format(title=name, view_title=gui_helper.view_title)
+		
+		print object_str
+			
+			
+		#gui_helper
+		
+		
+		if class_name == 'View':
+			gui_helper.insert_View(name, object_str)
+			
+		elif class_name == 'insert_Label':
+			gui_helper.insert_Label(name, object_str)
+			
+		elif class_name == 'TextField':
+			gui_helper.insert_TextField(name, object_str)
+			
+		elif class_name == 'TextView':
+			gui_helper.insert_TextView(name, object_str)
+			
+		elif class_name == 'Button':
+			gui_helper.insert_Button(name, object_str)
+			
+		elif class_name == 'Slider':
+			gui_helper.insert_Slider(name, object_str)
+		
+		elif class_name == 'Switch':
+			gui_helper.insert_Switch(name, object_str)
+			
+		elif class_name == 'SegmentedControl':
+			gui_helper.insert_SegmentedControl(name, object_str)
+			
+		elif class_name == 'TableView':
+			gui_helper.insert_TableView(name, object_str)
+			
+		elif class_name == 'TextView':
+			gui_helper.insert_TextView(name, object_str)
+		
+	
+		
+		#find all subview
+		if attrib['nodes']:
+			subclass_name_list.append(name)
+			get_attrib(attrib['nodes'])
+	if subclass_name_list:
+		del subclass_name_list[-1]
+
+def get_attrib_main(pyui_path, extra_func_mode, remove_title_bar, remove_status_bar, class_name, main_view_name):
+	global subclass_name_list, gui_helper
+	with open(pyui_path) as in_file:
+		r = json.load(in_file)
+		#pprint.pprint(r)
+		attrib = r[0]
+		
+		title = attrib.get('name', 'Untitled')
+		custom_class = attrib.get('custom_class', None)
+		print 'title {}'.format(title)
+		print 'custom_class {}'.format(custom_class)
+		print '----------'
+		subclass_name_list = []
+	
+		gui_helper = GUI_Helper(view_title=title, pyui_path=pyui_path, extra_func_mode=extra_func_mode, remove_title_bar=remove_title_bar, remove_status_bar=remove_status_bar, class_name=class_name, main_view_name=main_view_name)
+		
+		get_attrib(attrib['nodes'])
+
 
 class GUI_Helper(object):
-	def __init__(self, pyui_path, extra_func_mode=False, remove_title_bar=False, remove_status_bar=False):
-		self.sub_view_flag = False
-		with open(pyui_path) as f:
-			json_str = f.read()
-			#print json_str
-			view_dict = json.loads(json_str)[0]
-			attrs = view_dict.get('attributes', {})
-			name = os.path.splitext(os.path.basename(pyui_path))[0]
-			class_title = console.input_alert('Class Title','',name)
-			view_title = attrs.get('name', 'Untitled')
+	def __init__(self, view_title, pyui_path, extra_func_mode=False, remove_title_bar=False, remove_status_bar=False, class_name=False, main_view_name=False):
+		self.extra_func_mode=extra_func_mode
+		self.remove_title_bar=remove_title_bar
+		self.remove_status_bar=remove_status_bar
+		self.pyui_path = pyui_path
+		
+		name = os.path.splitext(os.path.basename(pyui_path))[0]
+		if class_name:
+			class_title = self.class_title = class_name
+		else:
+			class_title = self.class_title = console.input_alert('Class Title','',name)
+		
+		if main_view_name:
+			self.view_title = main_view_name
+		else:	
 			self.view_title = 'Untitled' if view_title == '' else view_title
-			print 'title:'+self.view_title
-			relpath = os.path.relpath(pyui_path, to_abs_path())
 			
-
-			
-			
-			if remove_status_bar or remove_title_bar:
-				imp_obj = 'import objc_util'
-				remove_bar_def = '''def find_nav_bar(v):
+		self.relpath = os.path.relpath(pyui_path, to_abs_path())
+		
+		imp_obj = ''
+		if remove_status_bar or remove_title_bar:
+			imp_obj += 'import objc_util'
+			remove_bar_def = '''def find_nav_bar(v):
 	sv=v.superview()
 	if sv:
 		for c in sv.subviews():
@@ -45,11 +144,11 @@ def remove_title_bar(v):
 def hide_status_bar():
 	objc_util.UIApplication.sharedApplication().statusBar().hidden = True
 				'''
-			else:
-				imp_obj = ''
-				remove_bar_def = ''
+		
+		else:
+			remove_bar_def = ''
 			
-			self.init_text = '''#!/usr/bin/env python
+		self.init_text = '''#!/usr/bin/env python
 #coding: utf-8
 
 import ui
@@ -64,29 +163,29 @@ def to_abs_path(*value):
 	return abs_path
 
 {remove_bar_def}
-'''.format(class_title=class_title, view_title=self.view_title, relpath=relpath, imp_obj=imp_obj, remove_bar_def=remove_bar_def)
+'''.format(class_title=class_title, view_title=self.view_title, relpath=self.relpath, imp_obj=imp_obj, remove_bar_def=remove_bar_def)
 
 
-			if extra_func_mode:
-				
-				self.init_text += '''
+		if extra_func_mode:
+			self.init_text += '''
 class {class_title}(ui.View):
 	def __init__(self, view):
 		self.{view_title} = view'''.format(class_title=class_title, view_title=self.view_title)
-			else:
-				
-				self.init_text += '''
+		
+		else:		
+			self.init_text += '''
 class {class_title}(object):
 	def __init__(self):
-		self.{view_title} = ui.load_view(to_abs_path('{relpath}'))'''.format(class_title=class_title, view_title=self.view_title, relpath=relpath)
+		self.{view_title} = ui.load_view(to_abs_path('{relpath}'))'''.format(class_title=class_title, view_title=self.view_title, relpath=self.relpath)
 		
 
-		
-		
-			self.def_text = ''
-			self.view_from_dict(view_dict) #making text
+		self.def_text = ''
+		#self.view_from_dict(view_dict) #making text
 			
-			extra_func_text = '''
+		
+	
+	def get_text(self):
+		extra_func_text = '''
 class _{class_title}({class_title}):
 	def __init__(self):
 		pass
@@ -111,78 +210,62 @@ class _{class_title}({class_title}):
 
 v = ui.load_view(to_abs_path('{relpath}'))
 v.present()
-'''.format(class_title=class_title, relpath=relpath)
+'''.format(class_title=self.class_title, relpath=self.relpath)
 			
-			self.text = self.init_text
-			self.text += '''
-		self.{view_title}.present()'''.format(view_title=self.view_title) if not extra_func_mode else ''
-			if not extra_func_mode:
-				if remove_status_bar:
-					self.text += '''
+		self.text = self.init_text
+		self.text += '''
+		self.{view_title}.present()'''.format(view_title=self.view_title) if not self.extra_func_mode else ''
+		if not self.extra_func_mode:
+			if self.remove_status_bar:
+				self.text += '''
 		hide_status_bar()'''
-				if remove_title_bar:
-					self.text += '''
+			if self.remove_title_bar:
+				self.text += '''
 		remove_title_bar(self.{view_title})'''.format(view_title=self.view_title)
 		
 		
-			self.text += '''
+		self.text += '''
 {def_text}
-	'''.format(init_text=self.init_text, def_text=self.def_text, view_title=self.view_title,class_title=class_title)
+	'''.format(init_text=self.init_text, def_text=self.def_text, view_title=self.view_title,class_title=self.class_title)
 			
-			if extra_func_mode:
-				add_custom_class(pyui_path, '_'+class_title)
-				self.text += extra_func_text
-				if remove_status_bar:
-					self.text += '''
+		if self.extra_func_mode:
+			add_custom_class(self.pyui_path, '_'+self.class_title)
+			self.text += extra_func_text
+			if self.remove_status_bar:
+				self.text += '''
 hide_status_bar()'''
-				if remove_title_bar:
-					self.text += '''
+			if self.remove_title_bar:
+				self.text += '''
 remove_title_bar(v)'''
 				
-			else:
-				add_custom_class(pyui_path, 'ui.View')
-				self.text += '''
-{class_title}()'''.format(class_title=class_title)
-				
-	
-	
-	def view_from_dict(self, view_dict):
-		attrs = view_dict.get('attributes', {})
-		classname = view_dict.get('class', 'View')
-		ViewClass = ui.__dict__.get(classname)
-		if not ViewClass:
-			return None
-		title = attrs.get('name', 'Untitled')
-		if classname == 'View':
-			
-			if not title == self.view_title:
-				#print 'subview title'+title
-				self.sub_view_name = title
-				self.sub_view_flag = True
-				self.init_text += '''
-		self.{title} = self.{view_title}['{title}']'''.format(title=title, view_title=self.view_title)
-				
-		if self.sub_view_flag:
-			self.sub_view = '''{sub_view_name}['{title}']'''.format(sub_view_name=self.sub_view_name, title=title)
 		else:
-			self.sub_view = '''{view_title}['{title}']'''.format(view_title=self.view_title, title=title)
-				
-		
-		if classname == 'Label':
-			print 'label'
-
-			
-		elif classname == 'TextField':
-			print 'TextField'
+			add_custom_class(self.pyui_path, 'ui.View')
+			self.text += '''
+{class_title}()'''.format(class_title=self.class_title)
+		return self.text
+	
+	
+	
+	
+	
+	def insert_View(self, title, object_str):
 			self.init_text += '''
-		self.{title} = self.{_title}
+		{}'''.format(object_str)
+	
+	def insert_Label(self, title, object_str):
+		print('Label')
+		
+	def insert_TextField(self, title, object_str):
+		print 'TextField'
+		self.init_text += '''
+		{object_str}
 		self.{title}.delegate = self.{title}_Delegate
 		self.{title}.delegate.textfield_did_change = self.{title}_did_change
 		self.{title}.autocorrection_type = False
 		self.{title}.spellchecking_type =False
 		self.{title}.autocapitalization_type = ui.AUTOCAPITALIZE_NONE
-		'''.format(title=title, view_title=self.view_title, _title=self.sub_view)
-			self.def_text += '''
+		'''.format(title=title, object_str=object_str)
+		self.def_text += '''
 	class {title}_Delegate():
 		pass
 	
@@ -190,88 +273,87 @@ remove_title_bar(v)'''
 		speech.say('{title}', 'en-US')
 		pass		
 			'''.format(title=title)
-			
-		elif classname == 'TextView':
-			print 'TextView'
-
-			
-		elif classname == 'Button':
-			print 'Button'
-			self.init_text += '''
-		self.{title} = self.{_title}
+		
+	def insert_TextView(self, title, object_str):
+		print 'TextView'
+		
+	def insert_Button(self, title, object_str):
+		print 'Button'
+		self.init_text += '''
+		{object_str}
 		self.{title}.action = self.{title}_action
-		'''.format(title=title, view_title=self.view_title, _title=self.sub_view)
-			self.def_text += '''
+		'''.format(title=title, object_str=object_str)
+		self.def_text += '''
 	def {title}_action(self, sender):
 		speech.say('{title}', 'en-US')
 		pass
 			'''.format(title=title)
-			
-		elif classname == 'Slider':
-			print 'Slider'
-			self.init_text += '''
-		self.{title} = self.{_title}
+	
+							
+	def insert_Slider(self, title, object_str):
+		print 'Slider'
+		self.init_text += '''
+		{object_str}
 		self.{title}.continuous = False
 		self.{title}.action = self.{title}_action
-		'''.format(title=title, view_title=self.view_title, _title=self.sub_view)
-			self.def_text += '''
+		'''.format(title=title, object_str=object_str)
+		self.def_text += '''
 	def {title}_action(self, sender):
 		speech.say('{title}', 'en-US')
 		pass
 			'''.format(title=title)
-			
-		elif classname == 'Switch':
-			print 'Switch'
-			print title
-			self.init_text += '''
-		self.{title} = self.{_title}
+		
+	def insert_Switch(self, title, object_str):
+		print 'Switch'
+		self.init_text += '''
+		{object_str}
 		self.{title}.action = self.{title}_action
-		'''.format(title=title, view_title=self.view_title, _title=self.sub_view)
-			self.def_text += '''
+		'''.format(title=title, object_str=object_str)
+		self.def_text += '''
 	def {title}_action(self, sender):
 		speech.say('{title}', 'en-US')
 		pass
 			'''.format(title=title)
-
-		elif classname == 'SegmentedControl':
-			print 'SegmentedControl'
-			self.init_text += '''
-		self.{title} = self.{_title}
+	
+	def insert_SegmentedControl(self, title, object_str):
+		print 'SegmentedControl'
+		self.init_text += '''
+		{object_str}
 		self.{title}.action = self.{title}_action
-		'''.format(title=title, view_title=self.view_title, _title=self.sub_view)
-			self.def_text += '''
+		'''.format(title=title, object_str=object_str)
+		self.def_text += '''
 	def {title}_action(self, sender):
 		speech.say('{title}', 'en-US')
 		pass
 			'''.format(title=title)
-
-		elif classname == 'WebView':
-			print 'WebView'
-			'''v.scales_page_to_fit = attrs.get('scales_to_fit')'''
+		
+	def insert_WebView(self, title, object_str):
+		print 'WebView'
+	
+	def insert_TableView(self, title, object_str):
+		print 'TableView'
 			
-			
-		elif classname == 'TableView':
-			print 'TableView'
-			
-			self.init_text += '''
-		self.{title} = self.{_title}
+		self.init_text += '''
+		{object_str}
 		self.{title}.data_source.items = ['Item1', 'Item2', 'Item3']
 		self.{title}.data_source.tableview_cell_for_row = self.{title}_cell_for_row
 		self.{title}.data_source.tableview_delete = self.{title}_delete
 		self.{title}.delegate.tableview_did_select = self.{title}_did_select
 		self.{title}.delegate.tableview_accessory_button_tapped = self.{title}_info_btn
 		 
-		'''.format(title=title, view_title=self.view_title ,_title=self.sub_view)
+		'''.format(title=title, object_str=object_str)
 		
 		
-			self.def_text += '''
+		self.def_text += '''
 	def {title}_cell_for_row(self, tableview, section, row):
 		lst = tableview.data_source
 		cell = ui.TableViewCell('subtitle')
 		cell.detail_text_label.text_color = '#757575'
+		cell.detail_text_label.text = 'Detail text here'
 		selected_item = lst.items[row]
 		cell.text_label.text = selected_item
 		cell.accessory_type = 'detail_button'
+		cell.image_view.image = ui.Image.named('emj:Cat_Face_Grinning')
 		
 		return cell
 	
@@ -287,6 +369,7 @@ remove_title_bar(v)'''
 		lst = tableview.data_source
 		selected_item = lst.items[row]
 		del lst.items[row]
+		speech.say(selected_item+' was deleted', 'en-US')
 		
 	def {title}_info_btn(self, tableview, section, row):
 		import console
@@ -295,43 +378,21 @@ remove_title_bar(v)'''
 		console.hud_alert(selected_item)
 		
 			'''.format(title=title)
-
-			
-		elif classname == 'DatePicker':
-			print 'DatePicker'
-
-		elif classname == 'ScrollView':
-			print 'ScrollView'
-
-		elif classname == 'ImageView':
-			print 'ImageView'
-			'''image_name = attrs.get('image_name')
-			if image_name:
-				v.image = Image.named(image_name)'''
 		
-		custom_attr_str = attrs.get('custom_attributes')
-		if custom_attr_str:
-			try:
-				f_locals['this'] = v
-				custom_attributes = eval(custom_attr_str, f_globals, f_locals)
-				if isinstance(custom_attributes, dict):
-					for key, value in custom_attributes.iteritems():
-						setattr(v, key, value)
-				elif custom_attributes:
-					sys.stderr.write('Warning: Custom attributes of view "%s" are not a dict\n' % (v.name,))
-			except Exception, e:
-				sys.stderr.write('Warning: Could not load custom attributes of view "%s": %s\n' % (v.name, e))
-			finally:
-				del f_locals['this']
-				
-		subview_dicts = view_dict.get('nodes', [])
+	def insert_DatePicker(self, title, object_str):
+		print 'DatePicker'
 	
-		for d in subview_dicts:
-			#print attrs['name']
-			subview = self.view_from_dict(d)
-		self.sub_view_flag = False
-
+	def insert_ScrollView(self, title, object_str):
+		print 'ScrollView'
+	
+	def insert_TextView(self, title, object_str):
+		print 'TextView'
+	
+	def insert_ImageView(self, title, object_str):
+		print 'ImageView'	
+	
 ######file picker#####
+#quoted from https://gist.github.com/omz/e3433ebba20c92b63111
 def file_picker(title=None, root_dir=None, multiple=False,
 	select_dirs=False, file_pattern=None, show_size=True):
 	#files = file_picker('Pick files', multiple=True, select_dirs=True, file_pattern=r'^.+$')
@@ -445,6 +506,7 @@ def file_picker(title=None, root_dir=None, multiple=False,
 			self.done_btn = ui.ButtonItem(title='Done', action=self.done_action)
 			self.root_btn = ui.ButtonItem(title='Root', action=self.root_btn_action)
 			self.mobile_btn = ui.ButtonItem(title='Mobile', action=self.mobile_btn_action)
+			self.view.right_button_items = [self.mobile_btn, self.root_btn]
 			if self.allow_multi:
 				self.view.right_button_items = [self.done_btn, self.mobile_btn, self.root_btn]
 			self.done_btn.enabled = False
@@ -663,17 +725,17 @@ def add_custom_class(pyui_path, class_name):
 		f.write(root_view_str)
 	
 
-def main(pyui_path, extra_func_mode=False, remove_title_bar=False, remove_status_bar=False):
-	
+def main(pyui_path, extra_func_mode=False, remove_title_bar=False, remove_status_bar=False, class_name=False, main_view_name=False):
+	global gui_helper
 	
 	if not pyui_path:
 		exit()
 	if os.path.exists(pyui_path):
-		a = GUI_Helper(pyui_path, extra_func_mode, remove_title_bar, remove_status_bar)
+		get_attrib_main(pyui_path, extra_func_mode, remove_title_bar, remove_status_bar, class_name, main_view_name) #making text
 		to_path = os.path.dirname(pyui_path)+'/'+os.path.basename(pyui_path).replace('.pyui','')+'_GUI_Helper.py'
-		#print a.text
+		
 		with open(to_path,'w') as f:
-			f.write(a.text)
+			f.write(gui_helper.get_text())
 		editor.open_file(to_path, True)
 		console.hide_output()
 	else:
@@ -688,27 +750,34 @@ def make_action(sender):
 	extra_func_mode = v['sw_extra'].value
 	remove_title_bar = v['sw_remove_title_bar'].value
 	remove_status_bar = v['sw_remove_status_bar'].value
-	main(pyui_path, extra_func_mode, remove_title_bar, remove_status_bar)
+	class_name = v['tf_class_name'].text
+	main_view_name = v['tf_main_view_name'].text
+	main(pyui_path, extra_func_mode, remove_title_bar, remove_status_bar, class_name, main_view_name)
 	sender.superview.close()
 
 data = '''\
-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
+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
 '''
 import ui
 import bz2
@@ -720,4 +789,11 @@ v['bt_make'].action = make_action
 v.present('sheet')
 
 pyui_path = file_picker('Select pyui file', multiple=False, select_dirs=False, file_pattern=r'^.+.pyui$')
-
+if pyui_path:
+	class_name = os.path.splitext(os.path.basename(pyui_path))[0]
+	with open(pyui_path) as in_file:
+		r = json.load(in_file)
+		attrib = r[0]
+		main_view_name = attrib['attributes'].get('name', 'view')
+	v['tf_class_name'].text = class_name
+	v['tf_main_view_name'].text = main_view_name
